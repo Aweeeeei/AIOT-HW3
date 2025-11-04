@@ -227,6 +227,18 @@ def main():
             fig2 = px.bar(counts, x='label', y='count', color='label', title='Prediction distribution')
             st.plotly_chart(fig2, use_container_width=True)
 
+            # 類別分布圖（Class Distribution Pie Chart）
+            col_bar, col_pie = st.columns(2)
+            with col_bar:
+                st.subheader('Prediction counts')
+                fig2 = px.bar(counts, x='label', y='count', color='label', title='Prediction distribution')
+                st.plotly_chart(fig2, use_container_width=True)
+            with col_pie:
+                st.subheader('Class distribution')
+                fig_pie = px.pie(counts, names='label', values='count', title='Class distribution')
+                st.plotly_chart(fig_pie, use_container_width=True)
+
+
             # Confusion matrix and ROC/PR if true labels available
             if 'label' in results.columns or 'true_label' in results.columns:
                 y_true = results.get('label', results.get('true_label'))
