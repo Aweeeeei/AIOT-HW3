@@ -153,7 +153,7 @@ def main():
     tabs = st.tabs(["Predictions", "Analytics", "Model"])
     pred_tab, analytics_tab, model_tab = tabs
 
-    # Predictions tab
+    # ---------------- Predictions tab ----------------
     with pred_tab:
         st.header("Single message prediction")
         col1, col2 = st.columns([3, 1])
@@ -196,7 +196,6 @@ def main():
                 if st.button("Run batch prediction"):
                     try:
                         with st.spinner("Running predictions..."):
-                            # 確保 df 有 message 欄位
                             if 'message' not in df.columns:
                                 df.rename(columns={df.columns[-1]: 'message'}, inplace=True)
                             results = predict_batch(df, model)
@@ -210,39 +209,56 @@ def main():
                     except Exception as e:
                         st.error(f"Batch prediction failed: {e}")
 
-    # Analytics tab
+    # ---------------- Analytics tab ----------------
     with analytics_tab:
         st.header("Prediction Analytics")
+
+        # 選擇資料來源
+        data_source = st.selectbox(
+            "Select dataset for analytics",
+            options=[
+                "Default processed dataset (sms_spam_clean.csv)",
+                "No-header dataset (sms_spam_no_head.csv)"
+            ],
+            index=0
+        )
+
         results = st.session_state.get('last_results')
 
-        # 若沒有 batch prediction 結果，嘗試載入預設 dataset
+        # 如果沒有 batch prediction 結果，載入選擇的 CSV
         if results is None:
-            default_dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "processed", "sms_spam_clean.csv")
-            if os.path.exists(default_dataset_path):
+            if data_source == "Default processed dataset (sms_spam_clean.csv)":
+                dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "processed", "sms_spam_clean.csv")
+            else:
+                dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "sms_spam_no_head.csv")
+
+            if os.path.exists(dataset_path):
                 try:
-                    results = pd.read_csv(default_dataset_path)
-                    st.success(f"✅ Loaded default dataset: {os.path.basename(default_dataset_path)}")
+                    results = pd.read_csv(dataset_path, header=0 if "clean" in dataset_path else None)
+                    st.success(f"✅ Loaded dataset: {os.path.basename(dataset_path)}")
+                    if "no_head" in dataset_path:
+                        if results.shape[1] >= 2:
+                            results.columns = ['label', 'message']
+                        else:
+                            results.columns = ['message']
                 except Exception as e:
-                    st.error(f"Failed to load default dataset: {e}")
+                    st.error(f"Failed to load dataset: {e}")
                     results = None
             else:
-                st.warning("No batch prediction results and default dataset not found.")
+                st.warning(f"Dataset not found: {dataset_path}")
                 results = None
 
         if results is not None:
-            # 確保 message 欄位存在
             if 'message' not in results.columns:
                 if 'text' in results.columns:
                     results.rename(columns={'text':'message'}, inplace=True)
                 else:
                     results.rename(columns={results.columns[-1]:'message'}, inplace=True)
 
-            # 若 prediction 欄位不存在，用模型生成
             if 'prediction' not in results.columns or results['prediction'].isnull().all():
                 if model is not None:
                     try:
                         results['prediction'] = predict_batch(results[['message']], model)['prediction']
-                        # 生成 confidence 欄位
                         if 'confidence' not in results.columns:
                             results['confidence'] = predict_batch(results[['message']], model)['confidence']
                     except Exception:
@@ -252,7 +268,6 @@ def main():
                     results['prediction'] = 'unknown'
                     results['confidence'] = 1.0
 
-            # 若 label 欄位不存在，建立 dummy label（僅作圖用）
             if 'label' not in results.columns:
                 results['label'] = results['prediction']
 
@@ -269,7 +284,7 @@ def main():
                 fig_conf = px.histogram(results, x='confidence', nbins=30, title='Prediction confidence distribution')
                 st.plotly_chart(fig_conf, use_container_width=True)
 
-            # Confusion matrix, ROC, PR, calibration (僅在有真實 label 時)
+            # Confusion matrix, ROC, PR, calibration
             if 'label' in results.columns and model is not None:
                 y_true = results['label'].copy()
                 if y_true.dtype == object:
@@ -277,7 +292,6 @@ def main():
                 y_pred = (results['prediction'] == 'spam').astype(int)
                 y_score = results.get('confidence', pd.Series(np.ones(len(results)))).values
 
-                # Confusion matrix
                 st.subheader('Confusion Matrix')
                 cm = confusion_matrix(y_true, y_pred, labels=[1, 0])
                 fig_cm, ax = plt.subplots()
@@ -287,7 +301,7 @@ def main():
                 ax.set_ylabel('Actual')
                 st.pyplot(fig_cm)
 
-                # ROC curve
+                # ROC
                 fpr, tpr, _ = roc_curve(y_true, y_score)
                 roc_auc = auc(fpr, tpr)
                 fig_roc = px.area(x=fpr, y=tpr, title=f'ROC curve (AUC={roc_auc:.3f})', labels={'x':'FPR','y':'TPR'})
@@ -300,7 +314,7 @@ def main():
                 fig_pr = px.area(x=recall, y=precision, title=f'Precision-Recall (AP={ap:.3f})', labels={'x':'Recall','y':'Precision'})
                 st.plotly_chart(fig_pr, use_container_width=True)
 
-                # Calibration curve
+                # Calibration
                 try:
                     prob_true, prob_pred = calibration_curve(y_true, y_score, n_bins=10)
                     fig_cal = px.line(x=prob_pred, y=prob_true, markers=True, title='Calibration curve')
@@ -325,7 +339,7 @@ def main():
                 st.plotly_chart(fig_pos, use_container_width=True)
                 st.plotly_chart(fig_neg, use_container_width=True)
 
-            # Embedding visualization
+            # Embedding
             st.subheader('Feature-space embedding (TruncatedSVD, sampled)')
             try:
                 msgs = results['message'].astype(str)
@@ -336,7 +350,7 @@ def main():
             except Exception as e:
                 st.info(f'Embedding visualization skipped: {e}')
 
-    # Model tab
+    # ---------------- Model tab ----------------
     with model_tab:
         st.header('Model information')
         if model is None:
