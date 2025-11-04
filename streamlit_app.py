@@ -229,34 +229,44 @@ def main():
                 st.warning("No batch prediction results and default dataset not found.")
                 results = None
 
-        else:
+        # 確保有資料才繪圖
+        if results is not None:
+            st.subheader('Message count distribution')
+            if 'prediction' in results.columns:
+                counts = results['prediction'].value_counts().reset_index()
+                counts.columns = ['label', 'count']
+            elif 'label' in results.columns:
+                counts = results['label'].value_counts().reset_index()
+                counts.columns = ['label', 'count']
+            else:
+                counts = pd.DataFrame({'label':['Unknown'], 'count':[len(results)]})
+            fig_counts = px.bar(counts, x='label', y='count', color='label', title='Message count distribution')
+            st.plotly_chart(fig_counts, use_container_width=True)
+
+            # 如果有 confidence 欄位，畫更多分析圖
             if 'confidence' in results.columns:
                 st.subheader('Confidence distribution')
-                fig = px.histogram(results, x='confidence', nbins=30, title='Prediction confidence distribution')
-                st.plotly_chart(fig, use_container_width=True)
-            st.subheader('Prediction counts')
-            counts = results['prediction'].value_counts().reset_index()
-            counts.columns = ['label', 'count']
-            fig2 = px.bar(counts, x='label', y='count', color='label', title='Prediction distribution')
-            st.plotly_chart(fig2, use_container_width=True)
+                fig_conf = px.histogram(results, x='confidence', nbins=30, title='Prediction confidence distribution')
+                st.plotly_chart(fig_conf, use_container_width=True)
 
-            # Confusion matrix and ROC/PR if true labels available
-            if 'label' in results.columns or 'true_label' in results.columns:
-                y_true = results.get('label', results.get('true_label'))
-                if y_true.dtype == object:
-                    y_true = (y_true == 'spam').astype(int)
-                y_pred = (results['prediction'] == 'spam').astype(int)
-                st.subheader('Confusion Matrix')
-                cm = confusion_matrix(y_true, y_pred, labels=[1, 0])
-                fig_cm, ax = plt.subplots()
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
-                            xticklabels=['spam', 'ham'], yticklabels=['spam', 'ham'])
-                ax.set_xlabel('Predicted')
-                ax.set_ylabel('Actual')
-                st.pyplot(fig_cm)
+                # Confusion matrix & ROC/PR (需要 true label)
+                if 'label' in results.columns or 'true_label' in results.columns:
+                    y_true = results.get('label', results.get('true_label'))
+                    if y_true.dtype == object:
+                        y_true = (y_true == 'spam').astype(int)
+                    y_pred = (results['prediction'] == 'spam').astype(int)
 
-                if 'confidence' in results.columns:
+                    st.subheader('Confusion Matrix')
+                    cm = confusion_matrix(y_true, y_pred, labels=[1, 0])
+                    fig_cm, ax = plt.subplots()
+                    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
+                                xticklabels=['spam', 'ham'], yticklabels=['spam', 'ham'])
+                    ax.set_xlabel('Predicted')
+                    ax.set_ylabel('Actual')
+                    st.pyplot(fig_cm)
+
                     y_score = results['confidence'].values
+
                     fpr, tpr, _ = roc_curve(y_true, y_score)
                     roc_auc = auc(fpr, tpr)
                     fig_roc = px.area(x=fpr, y=tpr, title=f'ROC curve (AUC={roc_auc:.3f})', labels={'x':'FPR','y':'TPR'})
@@ -268,7 +278,6 @@ def main():
                     fig_pr = px.area(x=recall, y=precision, title=f'Precision-Recall (AP={ap:.3f})', labels={'x':'Recall','y':'Precision'})
                     st.plotly_chart(fig_pr, use_container_width=True)
 
-                    # Calibration curve (requires true labels and predicted probabilities)
                     try:
                         prob_true, prob_pred = calibration_curve(y_true, y_score, n_bins=10)
                         fig_cal = px.line(x=prob_pred, y=prob_true, markers=True, title='Calibration curve')
@@ -279,7 +288,7 @@ def main():
                     except Exception as e:
                         st.info(f'Calibration plot skipped: {e}')
 
-            # Top features
+            # Top tokens
             if model is not None and hasattr(model['classifier'], 'coef_') and hasattr(model['vectorizer'], 'get_feature_names_out'):
                 st.subheader('Top tokens contributing to spam/ham')
                 coefs = model['classifier'].coef_[0]
