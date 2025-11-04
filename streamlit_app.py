@@ -158,7 +158,17 @@ def main():
         st.header("Single message prediction")
         col1, col2 = st.columns([3, 1])
         with col1:
-            text = st.text_area("Enter message to classify", height=120)
+            # 初始化 session_state 儲存文字框內容
+            if 'input_text' not in st.session_state:
+                st.session_state['input_text'] = ''
+
+            # 按鈕載入範例 spam email
+            if st.button("Load sample spam email"):
+                st.session_state['input_text'] = "Congratulations! You have won a free iPhone. Click here to claim."
+
+            # 文字輸入框綁定 session_state
+            text = st.text_area("Enter message to classify", value=st.session_state['input_text'], height=120)
+
             if st.button("Predict on text"):
                 if model is None:
                     st.error("Load a model first (use the sidebar or make sure the default model path is correct)")
@@ -172,6 +182,7 @@ def main():
                         st.write(res['processed_text'])
                     except Exception as e:
                         st.error(f"Error during prediction: {e}")
+
         with col2:
             st.markdown("### Quick examples")
             st.write("- URGENT! You have won a free iPhone. Click now!")
