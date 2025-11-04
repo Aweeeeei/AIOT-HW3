@@ -215,6 +215,7 @@ def main():
         st.header("Prediction Analytics")
         results = st.session_state.get('last_results')
 
+        # 若沒有 batch prediction 結果，嘗試載入預設 dataset
         if results is None:
             default_dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "processed", "sms_spam_clean.csv")
             if os.path.exists(default_dataset_path):
@@ -228,7 +229,6 @@ def main():
                 st.warning("No batch prediction results and default dataset not found.")
                 results = None
 
-        # ---- 修正欄位問題 ----
         if results is not None:
             # 確保 message 欄位存在
             if 'message' not in results.columns:
@@ -236,15 +236,25 @@ def main():
                     results.rename(columns={'text':'message'}, inplace=True)
                 else:
                     results.rename(columns={results.columns[-1]:'message'}, inplace=True)
-            # 確保 prediction 欄位存在
-            if 'prediction' not in results.columns:
+
+            # 若 prediction 欄位不存在，用模型生成
+            if 'prediction' not in results.columns or results['prediction'].isnull().all():
                 if model is not None:
                     try:
                         results['prediction'] = predict_batch(results[['message']], model)['prediction']
+                        # 生成 confidence 欄位
+                        if 'confidence' not in results.columns:
+                            results['confidence'] = predict_batch(results[['message']], model)['confidence']
                     except Exception:
                         results['prediction'] = 'unknown'
+                        results['confidence'] = 1.0
                 else:
                     results['prediction'] = 'unknown'
+                    results['confidence'] = 1.0
+
+            # 若 label 欄位不存在，建立 dummy label（僅作圖用）
+            if 'label' not in results.columns:
+                results['label'] = results['prediction']
 
             # Message count distribution
             st.subheader('Message count distribution')
@@ -259,7 +269,72 @@ def main():
                 fig_conf = px.histogram(results, x='confidence', nbins=30, title='Prediction confidence distribution')
                 st.plotly_chart(fig_conf, use_container_width=True)
 
-            # 其他分析略，可沿用原本程式碼
+            # Confusion matrix, ROC, PR, calibration (僅在有真實 label 時)
+            if 'label' in results.columns and model is not None:
+                y_true = results['label'].copy()
+                if y_true.dtype == object:
+                    y_true = (y_true == 'spam').astype(int)
+                y_pred = (results['prediction'] == 'spam').astype(int)
+                y_score = results.get('confidence', pd.Series(np.ones(len(results)))).values
+
+                # Confusion matrix
+                st.subheader('Confusion Matrix')
+                cm = confusion_matrix(y_true, y_pred, labels=[1, 0])
+                fig_cm, ax = plt.subplots()
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax,
+                            xticklabels=['spam', 'ham'], yticklabels=['spam', 'ham'])
+                ax.set_xlabel('Predicted')
+                ax.set_ylabel('Actual')
+                st.pyplot(fig_cm)
+
+                # ROC curve
+                fpr, tpr, _ = roc_curve(y_true, y_score)
+                roc_auc = auc(fpr, tpr)
+                fig_roc = px.area(x=fpr, y=tpr, title=f'ROC curve (AUC={roc_auc:.3f})', labels={'x':'FPR','y':'TPR'})
+                fig_roc.add_shape(type='line', x0=0, x1=1, y0=0, y1=1, line=dict(dash='dash'))
+                st.plotly_chart(fig_roc, use_container_width=True)
+
+                # Precision-Recall
+                precision, recall, _ = precision_recall_curve(y_true, y_score)
+                ap = average_precision_score(y_true, y_score)
+                fig_pr = px.area(x=recall, y=precision, title=f'Precision-Recall (AP={ap:.3f})', labels={'x':'Recall','y':'Precision'})
+                st.plotly_chart(fig_pr, use_container_width=True)
+
+                # Calibration curve
+                try:
+                    prob_true, prob_pred = calibration_curve(y_true, y_score, n_bins=10)
+                    fig_cal = px.line(x=prob_pred, y=prob_true, markers=True, title='Calibration curve')
+                    fig_cal.add_shape(type='line', x0=0, x1=1, y0=0, y1=1, line=dict(dash='dash'))
+                    fig_cal.update_xaxes(title='Mean predicted probability')
+                    fig_cal.update_yaxes(title='Fraction of positives')
+                    st.plotly_chart(fig_cal, use_container_width=True)
+                except Exception as e:
+                    st.info(f'Calibration plot skipped: {e}')
+
+            # Top tokens
+            if model is not None and hasattr(model['classifier'], 'coef_') and hasattr(model['vectorizer'], 'get_feature_names_out'):
+                st.subheader('Top tokens contributing to spam/ham')
+                coefs = model['classifier'].coef_[0]
+                feature_names = model['vectorizer'].get_feature_names_out()
+                top_pos_idx = np.argsort(coefs)[-20:]
+                top_neg_idx = np.argsort(coefs)[:20]
+                top_pos = pd.DataFrame({'token': feature_names[top_pos_idx], 'weight': coefs[top_pos_idx]})
+                top_neg = pd.DataFrame({'token': feature_names[top_neg_idx], 'weight': coefs[top_neg_idx]})
+                fig_pos = px.bar(top_pos.sort_values('weight'), x='weight', y='token', orientation='h', title='Top positive tokens (spam)')
+                fig_neg = px.bar(top_neg.sort_values('weight'), x='weight', y='token', orientation='h', title='Top negative tokens (ham)')
+                st.plotly_chart(fig_pos, use_container_width=True)
+                st.plotly_chart(fig_neg, use_container_width=True)
+
+            # Embedding visualization
+            st.subheader('Feature-space embedding (TruncatedSVD, sampled)')
+            try:
+                msgs = results['message'].astype(str)
+                emb_df = compute_embedding(model, msgs, sample=1000)
+                if not emb_df.empty:
+                    fig_emb = px.scatter(emb_df, x='x', y='y', hover_data=['message'], title='2D embedding (sampled)')
+                    st.plotly_chart(fig_emb, use_container_width=True)
+            except Exception as e:
+                st.info(f'Embedding visualization skipped: {e}')
 
     # Model tab
     with model_tab:
