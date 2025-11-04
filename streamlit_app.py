@@ -218,7 +218,7 @@ def main():
             "Select dataset for analytics",
             options=[
                 "Default processed dataset (sms_spam_clean.csv)",
-                "No-header dataset (sms_spam_no_head.csv)"
+                "No-header dataset (sms_spam_no_header.csv)"
             ],
             index=0
         )
@@ -230,7 +230,7 @@ def main():
             if data_source == "Default processed dataset (sms_spam_clean.csv)":
                 dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "processed", "sms_spam_clean.csv")
             else:
-                dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "sms_spam_no_head.csv")
+                dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "sms_spam_no_header.csv")
 
             if os.path.exists(dataset_path):
                 try:
