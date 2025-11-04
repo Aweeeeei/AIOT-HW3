@@ -68,7 +68,6 @@ def predict_single(text: str, model: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def predict_batch(df: pd.DataFrame, model: Dict[str, Any]) -> pd.DataFrame:
-    # Accept either a 'message' column or headerless two-column CSV (label,message)
     if 'message' not in df.columns:
         if df.shape[1] >= 2:
             df = df.iloc[:, :2]
@@ -205,7 +204,6 @@ def main():
                         results.to_csv(csv_buf, index=False)
                         csv_bytes = csv_buf.getvalue().encode('utf-8')
                         st.download_button("Download predictions CSV", data=csv_bytes, file_name="predictions.csv", mime="text/csv")
-                        # Store results in session state for analytics
                         st.session_state['last_results'] = results
                     except Exception as e:
                         st.error(f"Batch prediction failed: {e}")
@@ -215,7 +213,6 @@ def main():
         st.header("Prediction Analytics")
         results = st.session_state.get('last_results')
 
-        # 如果沒有 batch prediction 結果，嘗試載入預設 CSV
         if results is None:
             default_dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "processed", "sms_spam_clean.csv")
             if os.path.exists(default_dataset_path):
@@ -229,27 +226,35 @@ def main():
                 st.warning("No batch prediction results and default dataset not found.")
                 results = None
 
-        # 確保有資料才繪圖
+        # ---- 修正欄位問題 ----
         if results is not None:
+            # 確保 message 欄位存在
+            if 'message' not in results.columns:
+                if 'text' in results.columns:
+                    results.rename(columns={'text':'message'}, inplace=True)
+                else:
+                    results.rename(columns={results.columns[0]:'message'}, inplace=True)
+            # 確保 prediction 欄位存在
+            if 'prediction' not in results.columns:
+                if 'label' in results.columns:
+                    results['prediction'] = results['label']
+                else:
+                    results['prediction'] = 'unknown'
+
+            # Message count distribution
             st.subheader('Message count distribution')
-            if 'prediction' in results.columns:
-                counts = results['prediction'].value_counts().reset_index()
-                counts.columns = ['label', 'count']
-            elif 'label' in results.columns:
-                counts = results['label'].value_counts().reset_index()
-                counts.columns = ['label', 'count']
-            else:
-                counts = pd.DataFrame({'label':['Unknown'], 'count':[len(results)]})
+            counts = results['prediction'].value_counts().reset_index()
+            counts.columns = ['label', 'count']
             fig_counts = px.bar(counts, x='label', y='count', color='label', title='Message count distribution')
             st.plotly_chart(fig_counts, use_container_width=True)
 
-            # 如果有 confidence 欄位，畫更多分析圖
+            # Confidence distribution
             if 'confidence' in results.columns:
                 st.subheader('Confidence distribution')
                 fig_conf = px.histogram(results, x='confidence', nbins=30, title='Prediction confidence distribution')
                 st.plotly_chart(fig_conf, use_container_width=True)
 
-                # Confusion matrix & ROC/PR (需要 true label)
+                # Confusion matrix & ROC/PR
                 if 'label' in results.columns or 'true_label' in results.columns:
                     y_true = results.get('label', results.get('true_label'))
                     if y_true.dtype == object:
@@ -266,7 +271,6 @@ def main():
                     st.pyplot(fig_cm)
 
                     y_score = results['confidence'].values
-
                     fpr, tpr, _ = roc_curve(y_true, y_score)
                     roc_auc = auc(fpr, tpr)
                     fig_roc = px.area(x=fpr, y=tpr, title=f'ROC curve (AUC={roc_auc:.3f})', labels={'x':'FPR','y':'TPR'})
