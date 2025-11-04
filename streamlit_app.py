@@ -17,6 +17,7 @@ from sklearn.metrics import (
     precision_recall_curve,
     average_precision_score,
 )
+from sklearn.calibration import calibration_curve
 from sklearn.decomposition import TruncatedSVD
 
 # Reuse preprocessing from scripts/utils.py when available
@@ -253,6 +254,17 @@ def main():
                     ap = average_precision_score(y_true, y_score)
                     fig_pr = px.area(x=recall, y=precision, title=f'Precision-Recall (AP={ap:.3f})', labels={'x':'Recall','y':'Precision'})
                     st.plotly_chart(fig_pr, use_container_width=True)
+
+                    # Calibration curve (requires true labels and predicted probabilities)
+                    try:
+                        prob_true, prob_pred = calibration_curve(y_true, y_score, n_bins=10)
+                        fig_cal = px.line(x=prob_pred, y=prob_true, markers=True, title='Calibration curve')
+                        fig_cal.add_shape(type='line', x0=0, x1=1, y0=0, y1=1, line=dict(dash='dash'))
+                        fig_cal.update_xaxes(title='Mean predicted probability')
+                        fig_cal.update_yaxes(title='Fraction of positives')
+                        st.plotly_chart(fig_cal, use_container_width=True)
+                    except Exception as e:
+                        st.info(f'Calibration plot skipped: {e}')
 
             # Top features
             if model is not None and hasattr(model['classifier'], 'coef_') and hasattr(model['vectorizer'], 'get_feature_names_out'):
