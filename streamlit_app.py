@@ -228,15 +228,22 @@ def main():
             st.plotly_chart(fig2, use_container_width=True)
 
             # 類別分布圖（Class Distribution Pie Chart）
-            col_bar, col_pie = st.columns(2)
-            with col_bar:
-                st.subheader('Prediction counts')
-                fig2 = px.bar(counts, x='label', y='count', color='label', title='Prediction distribution')
-                st.plotly_chart(fig2, use_container_width=True)
-            with col_pie:
-                st.subheader('Class distribution')
-                fig_pie = px.pie(counts, names='label', values='count', title='Class distribution')
+            st.subheader('Class Distribution (Pie Chart)')
+            try:
+                class_counts = results['prediction'].value_counts().reset_index()
+                class_counts.columns = ['Class', 'Count']
+                fig_pie = px.pie(
+                    class_counts,
+                    names='Class',
+                    values='Count',
+                    color='Class',
+                    title='Class Distribution of Predictions',
+                    color_discrete_map={'spam': '#FF6B6B', 'ham': '#4ECDC4'}
+                )
+                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                 st.plotly_chart(fig_pie, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Could not generate class distribution plot: {e}")
 
 
             # Confusion matrix and ROC/PR if true labels available
