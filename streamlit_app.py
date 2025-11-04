@@ -214,8 +214,21 @@ def main():
     with analytics_tab:
         st.header("Prediction Analytics")
         results = st.session_state.get('last_results')
+
+        # 如果沒有 batch prediction 結果，嘗試載入預設 CSV
         if results is None:
-            st.info("Run a batch prediction first to see analytics (upload CSV in Predictions tab)")
+            default_dataset_path = os.path.join(os.path.dirname(__file__), "datasets", "processed", "sms_spam_clean.csv")
+            if os.path.exists(default_dataset_path):
+                try:
+                    results = pd.read_csv(default_dataset_path)
+                    st.success(f"✅ Loaded default dataset: {os.path.basename(default_dataset_path)}")
+                except Exception as e:
+                    st.error(f"Failed to load default dataset: {e}")
+                    results = None
+            else:
+                st.warning("No batch prediction results and default dataset not found.")
+                results = None
+
         else:
             if 'confidence' in results.columns:
                 st.subheader('Confidence distribution')
@@ -226,25 +239,6 @@ def main():
             counts.columns = ['label', 'count']
             fig2 = px.bar(counts, x='label', y='count', color='label', title='Prediction distribution')
             st.plotly_chart(fig2, use_container_width=True)
-
-            # 類別分布圖（Class Distribution Pie Chart）
-            st.subheader('Class Distribution (Pie Chart)')
-            try:
-                class_counts = results['prediction'].value_counts().reset_index()
-                class_counts.columns = ['Class', 'Count']
-                fig_pie = px.pie(
-                    class_counts,
-                    names='Class',
-                    values='Count',
-                    color='Class',
-                    title='Class Distribution of Predictions',
-                    color_discrete_map={'spam': '#FF6B6B', 'ham': '#4ECDC4'}
-                )
-                fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-                st.plotly_chart(fig_pie, use_container_width=True)
-            except Exception as e:
-                st.warning(f"Could not generate class distribution plot: {e}")
-
 
             # Confusion matrix and ROC/PR if true labels available
             if 'label' in results.columns or 'true_label' in results.columns:
