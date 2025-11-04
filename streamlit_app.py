@@ -19,6 +19,7 @@ from sklearn.metrics import (
 )
 from sklearn.calibration import calibration_curve
 from sklearn.decomposition import TruncatedSVD
+import random
 
 # Reuse preprocessing from scripts/utils.py when available
 try:
@@ -158,15 +159,25 @@ def main():
         st.header("Single message prediction")
         col1, col2 = st.columns([3, 1])
         with col1:
-            # 初始化 session_state 儲存文字框內容
             if 'input_text' not in st.session_state:
                 st.session_state['input_text'] = ''
 
-            # 按鈕載入範例 spam email
-            if st.button("Load sample spam email"):
-                st.session_state['input_text'] = "Congratulations! You have won a free iPhone. Click here to claim."
+            # 範例訊息清單
+            sample_messages = [
+                "Congratulations! You have won a free iPhone. Click here to claim.",
+                "URGENT! Your account has been compromised. Reset your password now.",
+                "Win $1000 cash now by entering our sweepstakes!",
+                "Dear user, your subscription expires today. Renew now to continue.",
+                "Hi Mom, what time should I come over?",
+                "Hey, are we still meeting for dinner tonight?",
+                "Don't forget to submit the report by 5 PM.",
+                "20% off at your local store this weekend!"
+            ]
 
-            # 文字輸入框綁定 session_state
+            if st.button("Load random sample message"):
+                st.session_state['input_text'] = random.choice(sample_messages)
+
+            # 綁定 session_state
             text = st.text_area("Enter message to classify", value=st.session_state['input_text'], height=120)
 
             if st.button("Predict on text"):
@@ -177,8 +188,11 @@ def main():
                 else:
                     try:
                         res = predict_single(text, model)
-                        st.success(f"Prediction: {res['prediction'].upper()} (confidence: {res['confidence']:.4f})")
-                        st.markdown("**Processed text**")
+                        # 顯示更醒目的結果
+                        color = "red" if res['prediction'] == 'spam' else "green"
+                        st.markdown(f"<h2 style='color:{color}'>{res['prediction'].upper()} ✅</h2>", unsafe_allow_html=True)
+                        st.markdown(f"**Confidence:** {res['confidence']:.4f}")
+                        st.markdown("**Processed text:**")
                         st.write(res['processed_text'])
                     except Exception as e:
                         st.error(f"Error during prediction: {e}")
