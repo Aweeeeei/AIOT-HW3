@@ -2,6 +2,9 @@ import streamlit as st
 import joblib
 import pandas as pd
 import io
+import requests
+import tempfile
+import os
 from typing import Dict, Any
 from pathlib import Path
 
@@ -15,8 +18,8 @@ except Exception:
 
 
 @st.cache_resource
-def load_model(path: str) -> Dict[str, Any]:
-    """Load and return model artifacts (vectorizer, classifier, metadata).
+def load_model_from_path(path: str) -> Dict[str, Any]:
+    """Load and return model artifacts from a local file path.
 
     Cached so repeated UI interactions don't reload from disk.
     """
@@ -26,6 +29,20 @@ def load_model(path: str) -> Dict[str, Any]:
     model = joblib.load(path)
     # Expecting a dict with 'vectorizer', 'classifier', and optional 'metadata'
     return model
+
+
+def load_model_from_bytes(b: bytes) -> Dict[str, Any]:
+    """Load a joblib model from raw bytes (e.g., uploaded file or downloaded content)."""
+    bio = io.BytesIO(b)
+    model = joblib.load(bio)
+    return model
+
+
+def download_model_to_bytes(url: str) -> bytes:
+    """Download model from a URL and return raw bytes. Raises on HTTP errors."""
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    return resp.content
 
 
 def predict_single(text: str, model: Dict[str, Any]) -> Dict[str, Any]:
@@ -76,31 +93,54 @@ def main():
 
     st.sidebar.header("Model and Input")
     default_model = "models/spam_classifier.joblib"
-    model_path = st.sidebar.text_input("Model path", value=default_model)
 
-    load_btn = st.sidebar.button("Load model")
-
+    model_source = st.sidebar.selectbox("Model source", ["Repo path", "Upload .joblib", "Model URL"], index=0)
     model = None
-    if load_btn:
-        try:
-            with st.spinner("Loading model..."):
-                model = load_model(model_path)
-            st.sidebar.success("Model loaded")
-            # show metadata if present
-            meta = model.get('metadata', {}) if isinstance(model, dict) else {}
-            if meta:
-                st.sidebar.markdown("**Model metadata**")
-                for k, v in meta.items():
-                    st.sidebar.write(f"- **{k}**: {v}")
-        except Exception as e:
-            st.sidebar.error(f"Failed to load model: {e}")
 
-    # If model hasn't been loaded yet but file exists, try auto-loading silently
-    if model is None and Path(model_path).exists():
-        try:
-            model = load_model(model_path)
-        except Exception:
-            model = None
+    if model_source == "Repo path":
+        model_path = st.sidebar.text_input("Model path (in repo)", value=default_model)
+        if st.sidebar.button("Load model from repo path"):
+            try:
+                with st.spinner("Loading model from path..."):
+                    model = load_model_from_path(model_path)
+                st.sidebar.success("Model loaded from path")
+            except Exception as e:
+                st.sidebar.error(f"Failed to load model: {e}")
+        # Try auto-loading if the file exists in the running environment
+        if model is None and Path(model_path).exists():
+            try:
+                model = load_model_from_path(model_path)
+            except Exception:
+                model = None
+
+    elif model_source == "Upload .joblib":
+        uploaded_model = st.sidebar.file_uploader("Upload .joblib file", type=["joblib", "pkl"])
+        if uploaded_model is not None:
+            try:
+                with st.spinner("Loading uploaded model..."):
+                    b = uploaded_model.read()
+                    model = load_model_from_bytes(b)
+                st.sidebar.success("Model loaded from upload")
+            except Exception as e:
+                st.sidebar.error(f"Failed to load uploaded model: {e}")
+
+    else:  # Model URL
+        model_url = st.sidebar.text_input("Model URL (https)")
+        if st.sidebar.button("Download & load model"):
+            if not model_url:
+                st.sidebar.error("Please provide a model URL.")
+            else:
+                try:
+                    with st.spinner("Downloading model..."):
+                        b = download_model_to_bytes(model_url)
+                        model = load_model_from_bytes(b)
+                    st.sidebar.success("Model downloaded and loaded")
+                except Exception as e:
+                    st.sidebar.error(f"Failed to download/load model: {e}")
+
+    # Helpful note for deployed apps
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Note: On deployed Streamlit apps the repo may not contain local model files. Use Upload or Model URL if the default path isn't present.")
 
     st.header("Single message prediction")
     col1, col2 = st.columns([3, 1])
